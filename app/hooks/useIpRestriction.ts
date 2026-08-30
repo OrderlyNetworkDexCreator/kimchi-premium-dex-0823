@@ -1,18 +1,28 @@
 import { useEffect, useState } from "react";
+import ipRangeCheck from "ip-range-check";
+import { useConfig } from "@orderly.network/hooks";
 import { getRuntimeConfigArray } from "@/utils/runtime-config";
 
-function formatRegion(region: string): string {
-  return region?.replace(/\s+/g, "").toLowerCase();
+function isIpWhitelisted(ip: string, whitelistPatterns: string[]): boolean {
+  return whitelistPatterns.some((pattern) => {
+    try {
+      return ipRangeCheck(ip, pattern);
+    } catch (error) {
+      console.warn(`Invalid IP pattern: ${pattern}`, error);
+      return ip === pattern;
+    }
+  });
 }
 
 export const useIpRestriction = () => {
+  const apiBaseUrl = useConfig("apiBaseUrl");
   const [isRestricted, setIsRestricted] = useState<boolean>(false);
   const [ipInfo, setIpInfo] = useState<{ ip: string; region: string } | null>(
-    null
+    null,
   );
 
   useEffect(() => {
-    fetch("https://api.orderly.org/v1/ip_info")
+    fetch(`${apiBaseUrl}/v1/ip_info`)
       .then((res) => res.json())
       .then((data) => {
         const userRegion = data?.data?.region || "";
@@ -24,15 +34,19 @@ export const useIpRestriction = () => {
         const whitelistIps =
           getRuntimeConfigArray("VITE_WHITELISTED_IPS") || [];
 
-        if (whitelistIps.includes(userIp)) {
+        if (isIpWhitelisted(userIp, whitelistIps)) {
           setIsRestricted(false);
           return;
         }
-        if (restrictedRegions.includes(formatRegion(userRegion))) {
+        if (restrictedRegions.includes(userRegion)) {
           setIsRestricted(true);
         }
+      })
+      .catch((error) => {
+        console.error("Failed to fetch IP info:", error);
+        setIsRestricted(false);
       });
-  }, []);
+  }, [apiBaseUrl]);
 
   return { isRestricted, ipInfo };
 };
